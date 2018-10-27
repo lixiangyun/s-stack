@@ -27,7 +27,7 @@ size_t g_stat_send_size  = 0;
 int g_stat_recv_times    = 0;
 size_t g_stat_recv_size  = 0;
 
-void * g_stat_display(void * arg) 
+void * stat_display(void * arg) 
 {
     int send_times = 0;
     int recv_times = 0;
@@ -202,8 +202,8 @@ void * client_socket_process(void * arg)
         for ( i = 0; i < nevents ; ++i ) 
         {
             char buf[BUFF_MAX_LEN];
-            size_t writelen = 0;
-            size_t readlen  = 0;
+            ssize_t writelen = 0;
+            ssize_t readlen  = 0;
 
             if (events[i].events & EPOLLERR ) 
             {
@@ -220,9 +220,8 @@ void * client_socket_process(void * arg)
                 {
                     g_stat_recv_times++;
                     g_stat_recv_size += readlen;
-                    ss_buff_write(g_buff_m, buf, readlen);
                 }
-                
+
                 if ( readlen == 0 ) 
                 {
                     ss_epoll_ctl(epfd, EPOLL_CTL_DEL,  events[i].data.fd, NULL);
@@ -234,9 +233,6 @@ void * client_socket_process(void * arg)
             if (events[i].events & EPOLLOUT )
             {
                 readlen = sprintf(buf, "helloworld! (client %d)\n", g_stat_send_times );
-                
-                g_stat_send_times++;
-                g_stat_send_size += readlen;
 
                 writelen = ss_write( events[i].data.fd, buf, readlen);
                 if ( writelen == 0 ) 
@@ -244,6 +240,12 @@ void * client_socket_process(void * arg)
                     ss_epoll_ctl(epfd, EPOLL_CTL_DEL,  events[i].data.fd, NULL);
                     ss_close( events[i].data.fd);
                     printf("connect %d close.\n", events[i].data.fd);
+                }
+
+                if ( writelen > 0 )
+                {
+                    g_stat_send_times++;
+                    g_stat_send_size += writelen;
                 }
             }
         }
@@ -260,7 +262,7 @@ int server_init(int argc, char * argv[])
 
     pthread_t tid;
 
-    g_buff_m = (struct ss_buff *)malloc(sizeof(struct ss_buff));
+    g_buff_m = ss_buff_alloc();
     
     g_sockfd = ss_socket(AF_INET, SOCK_STREAM, 0);
     if (g_sockfd < 0)
@@ -272,7 +274,7 @@ int server_init(int argc, char * argv[])
     printf("sockfd:%d\n", g_sockfd);
     for ( i = 0 ; i < argc ; i++ )
     {
-        if ( 0 == strcmp(argv[i],"p") )
+        if ( 0 == strcmp(argv[i],"port") )
         {
             port = (short)atoi(argv[i+1]);
         }
@@ -300,8 +302,6 @@ int server_init(int argc, char * argv[])
         exit(1);
     }
     
-    pthread_create(&tid, NULL, g_stat_display, NULL);
-
     server_socket_process(NULL);
 
     return 0;
@@ -331,12 +331,12 @@ int client_init(int argc, char * argv[])
     
     for ( i = 0 ; i < argc ; i++ )
     {
-        if ( 0 == strcmp(argv[i],"p") )
+        if ( 0 == strcmp(argv[i],"port") )
         {
             port = (short)atoi(argv[i+1]);
         }
 
-        if ( 0 == strcmp(argv[i],"a") )
+        if ( 0 == strcmp(argv[i],"addr") )
         {
             addr = argv[i+1];
         }
@@ -354,17 +354,37 @@ int client_init(int argc, char * argv[])
     if (ret == 0)
     {
         printf("inet_aton failed! \n");
+        ss_close(g_sockfd);
         exit(1);
     }
 
-    ret = ss_connect(g_sockfd, (const struct sockaddr *)&my_addr, sizeof(my_addr));
-    if (ret < 0) 
+    while(1)
     {
-        printf("connect failed! errno %d\n", errno);
-        exit(1);
-    }
+        sleep(1);
+        
+        ret = ss_connect(g_sockfd, (const struct sockaddr *)&my_addr, sizeof(my_addr));
+        if ( ret == 0 )
+        {
+            break;
+        }
 
-    pthread_create(&tid, NULL, g_stat_display, NULL);
+        if (errno == EISCONN)
+        {
+            break;
+        }
+        
+        if (errno == EINTR)
+        {
+            continue;
+        }
+
+        if (errno != EINPROGRESS) 
+        {
+            printf("connect failed, errno: %d.\n", errno);
+            ss_close(g_sockfd);
+            exit(1);
+        }
+    }
 
     client_socket_process(NULL);
 

@@ -29,21 +29,22 @@ int g_ff_epfd = -1;
 struct ss_call_que g_ss_call_que = {PTHREAD_MUTEX_INITIALIZER,0,NULL,NULL};
 
 struct ss_call_func {
+    const char * name;
     int idx;
     void (*func)(struct ss_call_s *);
 };
 
 struct ss_call_func ss_call_funcs[] = {
-    { SS_CALL_SOCKET, ss_socket_call },
-    { SS_CALL_SETSOCKOPT, ss_setsockopt_call },
-    { SS_CALL_GETSOCKOPT, ss_getsockopt_call },
-    { SS_CALL_LISTEN, ss_listen_call },
-    { SS_CALL_BIND, ss_bind_call },
-    { SS_CALL_CONNECT, ss_connect_call },
-    { SS_CALL_CLOSE, ss_close_call },
-    { SS_CALL_GETPEERNAME, ss_getpeername_call },
-    { SS_CALL_GETSOCKNAME, ss_getsockname_call },
-    { SS_CALL_EPOLL_CTL, ss_epoll_ctl_call },
+    { "socket",SS_CALL_SOCKET, ss_socket_call },
+    { "setsockopt",SS_CALL_SETSOCKOPT, ss_setsockopt_call },
+    { "getsockopt",SS_CALL_GETSOCKOPT, ss_getsockopt_call },
+    { "listen",SS_CALL_LISTEN, ss_listen_call },
+    { "bind"  ,SS_CALL_BIND  , ss_bind_call   },
+    { "connect",SS_CALL_CONNECT, ss_connect_call },
+    { "close"  ,SS_CALL_CLOSE  , ss_close_call   },
+    { "getpeername",SS_CALL_GETPEERNAME, ss_getpeername_call },
+    { "getsockname",SS_CALL_GETSOCKNAME, ss_getsockname_call },
+    { "epoll_ctl"  ,SS_CALL_EPOLL_CTL  , ss_epoll_ctl_call   },
 };
 
 struct ss_socket_m g_ss_socket[SOCK_MAX_NUM] = {0,0,0,0,NULL,NULL,NULL};
@@ -412,15 +413,19 @@ int ss_call_remote( struct ss_call_s * pcall )
 void ss_call_proc( struct ss_call_s * pcall )
 {
     int ret = 0;
+    const char * name = "unkown";
 
+    errno = 0;
     pcall->ret = 0;
 
     if ( pcall->call_idx < SS_CALL_END )
     {
         ss_call_funcs[pcall->call_idx].func(pcall);
+        name = ss_call_funcs[pcall->call_idx].name;
     }
     
-    printf("ff remote call idx %d , parm %p, ret %d \n", pcall->call_idx, pcall->param , pcall->ret );
+    printf("ff remote call %s, idx %d , parm %p, ret %d, err %d.\n",
+            name, pcall->call_idx, pcall->param , pcall->ret, pcall->err );
 
     ret = sem_post(&pcall->sem);
     if ( ret < 0 )

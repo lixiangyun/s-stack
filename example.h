@@ -6,3 +6,5 @@ int server_init(int argc, char * argv[]);
 
 int client_init(int argc, char * argv[]);
 
+void * stat_display(void * arg);
+
