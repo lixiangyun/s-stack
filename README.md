@@ -8,6 +8,6 @@
 ## step2 run
 ```
 cd bin
-./example s p 8080
-./example c a 127.0.0.1 p 8080
+./example server port 808
+./example client addr 127.0.0.1 port 808
 ```
