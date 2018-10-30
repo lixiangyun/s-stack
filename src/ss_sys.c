@@ -47,7 +47,7 @@ struct ss_call_func ss_call_funcs[] = {
     { "epoll_ctl"  ,SS_CALL_EPOLL_CTL  , ss_epoll_ctl_call   },
 };
 
-struct ss_socket_m g_ss_socket[SOCK_MAX_NUM] = {0,0,0,0,NULL,NULL,NULL};
+struct ss_socket_m g_ss_socket[SOCK_MAX_NUM] = {0,0,0,0,0,NULL,NULL,NULL};
 
 struct ss_socket_m * ss_socket_m_alloc(void)
 {
@@ -355,7 +355,32 @@ void ss_epoll_ctl_call( struct ss_call_s * pcall )
     
     if ( EPOLL_CTL_DEL == parm->opt )
     {
-        ret = ff_epoll_ctl(g_ff_epfd, parm->opt, p_socket->sockfd, NULL );
+        p_socket->ctl_ref--;
+        
+        if ( p_socket->ctl_ref == 0 )
+        {
+            ret = ff_epoll_ctl(g_ff_epfd, parm->opt, p_socket->sockfd, NULL );
+        }
+    }
+    else if ( EPOLL_CTL_ADD == parm->opt )
+    {
+        if ( p_socket->ctl_ref == 0 )
+        {
+            struct epoll_event event;
+
+            event.data.fd  = parm->fd;
+            event.events   = parm->events;
+            
+            ret = ff_epoll_ctl(g_ff_epfd, parm->opt, p_socket->sockfd, &event );
+            if ( ret == 0 )
+            {
+                p_socket->ctl_ref++;
+            }
+        }
+        else
+        {
+            p_socket->ctl_ref++;
+        }
     }
     else
     {

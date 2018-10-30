@@ -20,8 +20,6 @@
 
 int g_sockfd = -1;
 
-struct ss_buff * g_buff_m;
-
 int g_stat_send_times    = 0;
 size_t g_stat_send_size  = 0;
 int g_stat_recv_times    = 0;
@@ -68,13 +66,16 @@ void * server_socket_process(void * arg)
     struct epoll_event ev;
     struct epoll_event events[MAX_EVENTS];
     int epfd;
-
+    struct ss_buff * buff_m = ss_buff_alloc();
+    
     epfd = ss_epoll_create(0);
     if ( epfd < 0 )
     {
         printf("epoll create failed\n");
         exit(1);
     }
+
+    printf("ss_epoll_create %d success!\n", epfd);
 
     ev.data.fd = g_sockfd;
     ev.events  = EPOLLIN;
@@ -84,6 +85,8 @@ void * server_socket_process(void * arg)
         printf("ss_epoll_ctl failed\n");
         exit(1);
     }
+
+    printf("server_socket_process success!\n");
 
     for (;;)
     {
@@ -138,7 +141,7 @@ void * server_socket_process(void * arg)
                     {
                         g_stat_recv_times++;
                         g_stat_recv_size += readlen;
-                        ss_buff_write(g_buff_m, buf, readlen);
+                        ss_buff_write(buff_m, buf, readlen);
                     }
                     if ( readlen == 0 ) 
                     {
@@ -150,7 +153,7 @@ void * server_socket_process(void * arg)
 
                 if (events[i].events & EPOLLOUT )
                 {
-                    readlen = ss_buff_read(g_buff_m, buf, sizeof(buf));
+                    readlen = ss_buff_read(buff_m, buf, sizeof(buf));
                     if ( readlen > 0 )
                     {
                         writelen = ss_write( events[i].data.fd, buf, readlen);
@@ -262,8 +265,6 @@ int server_init(int argc, char * argv[])
 
     pthread_t tid;
 
-    g_buff_m = ss_buff_alloc();
-    
     g_sockfd = ss_socket(AF_INET, SOCK_STREAM, 0);
     if (g_sockfd < 0)
     {
@@ -301,6 +302,10 @@ int server_init(int argc, char * argv[])
         printf("listen failed! ret=%d\n", ret);
         exit(1);
     }
+
+    pthread_create(&tid, NULL, server_socket_process, NULL);
+    pthread_create(&tid, NULL, server_socket_process, NULL);
+    pthread_create(&tid, NULL, server_socket_process, NULL);
     
     server_socket_process(NULL);
 
@@ -312,14 +317,10 @@ int client_init(int argc, char * argv[])
 {
     int ret;
     int i;
-    
     short port;
     char * addr;
-
     pthread_t tid;
 
-    g_buff_m = (struct ss_buff *)malloc(sizeof(struct ss_buff));
-    
     g_sockfd = ss_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (g_sockfd < 0)
     {

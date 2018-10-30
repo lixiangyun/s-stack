@@ -238,15 +238,22 @@ int ss_accept(int s, struct sockaddr * paddr, socklen_t * paddrlen)
         printf("socket free! %d\n", s);
         return -1;
     }
-    
-    p_accept = p_socket->paccept;
-    if ( NULL == p_accept )
+
+    for (;;)
     {
-        return -1;
+        p_accept = p_socket->paccept;
+        if ( NULL == p_accept )
+        {
+            return -1;
+        }
+        
+        if ( ss_atomic64_cas((long*)&p_socket->paccept, (long)p_accept, 0) )
+        {
+            p_socket->paccept = p_accept->pnext;
+            break;
+        }
     }
     
-    p_socket->paccept = p_accept->pnext;
-
     if ( NULL != paddr )
     {
         memcpy(paddr, &p_accept->addr, p_accept->addrlen);
@@ -385,7 +392,7 @@ int ss_epoll_create(int size)
 
     for ( i = 0 ; i < EPOLL_MAX_NUM ; i++ )
     {
-        if ( 0 == g_epoll_m[i].epoll_fd )
+        if ( ss_atomic_cas(&g_epoll_m[i].epoll_fd, 0, 1) )
         {
             break;
         }
