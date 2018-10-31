@@ -70,6 +70,7 @@ struct ss_socket_m * ss_socket_m_alloc(void)
     p_socket->status  = SS_USED_FLAG;
     p_socket->sockfd  = 0;
     p_socket->idx     = i;
+    p_socket->ctl_ref = 0;
     p_socket->ref++;
     
     p_socket->paccept = NULL;
@@ -313,7 +314,7 @@ void ss_getpeername_call( struct ss_call_s * pcall )
         return;
     }
     
-    ret = ff_getpeername(parm->s, (struct linux_sockaddr *)parm->name, parm->namelen);
+    ret = ff_getpeername(p_socket->sockfd, (struct linux_sockaddr *)parm->name, parm->namelen);
 
     pcall->ret = ret;
     pcall->err = errno;
@@ -332,7 +333,7 @@ void ss_getsockname_call( struct ss_call_s * pcall )
         return;
     }
     
-    ret = ff_getsockname(parm->s, (struct linux_sockaddr *)parm->name, parm->namelen);
+    ret = ff_getsockname(p_socket->sockfd, (struct linux_sockaddr *)parm->name, parm->namelen);
 
     pcall->ret = ret;
     pcall->err = errno;
@@ -340,7 +341,7 @@ void ss_getsockname_call( struct ss_call_s * pcall )
 
 void ss_epoll_ctl_call( struct ss_call_s * pcall )
 {
-    int ret;
+    int ret = 0;
     struct ss_parm_epoll_ctl *parm = (struct ss_parm_epoll_ctl *)pcall->param;
     struct ss_socket_m * p_socket = ss_socket_m_get(parm->fd);
     
@@ -499,17 +500,23 @@ void ss_buff_accept( struct ss_socket_m * p_socket )
             free(p_accept);
             break;
         }
-
         printf("ss buff accept get client fd %d !\n", client_fd);
         
         p_cli = ss_socket_m_alloc();
         p_cli->status |= SS_CLIENT;
         p_cli->sockfd  = client_fd;
-
-        p_accept->fd    = ( p_cli->idx + (p_cli->ref << 16) );
+        p_accept->fd   = ( p_cli->idx + (p_cli->ref << 16) );
         
-        p_accept->pnext   = p_socket->paccept;
-        p_socket->paccept = p_accept;
+        while(1)
+        {
+            struct ss_accept_s * ptemp;
+            ptemp = p_socket->paccept;
+            p_accept->pnext   = ptemp;
+            if ( ss_atomic64_cas((long *)&(p_socket->paccept), (long)ptemp, (long)p_accept) )
+            {
+                break;
+            }
+        }
     }
 }
 
@@ -527,7 +534,7 @@ void ss_buff_connect(struct ss_socket_m * p_socket, int events )
         cnt = ff_read(p_socket->sockfd, stbuf, cnt );
         if ( 0 == cnt || ( cnt < 0 && errno != EAGAIN ) )
         {
-            printf("ff connect read disable!\n");
+            printf("ff connect read disable! (cnt %ld, errno %d)\n", cnt, errno );
             p_socket->status |= SS_CONN_STAT;
             return;
         }
@@ -551,7 +558,7 @@ void ss_buff_connect(struct ss_socket_m * p_socket, int events )
             tmp = ff_write(p_socket->sockfd, &stbuf[cnt], remain );
             if ( 0 == tmp || ( tmp < 0 && errno != EAGAIN ) )
             {
-                printf("ff connect write disable!\n");
+                printf("ff connect write disable! (cnt %ld, errno %d)\n", cnt, errno );
                 p_socket->status |= SS_CONN_STAT;
                 return;
             }
